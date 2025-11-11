@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="rw">
+<head>
+<meta charset="UTF-8">
+<title>Village Data System</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #eef2f3;
+  margin: 0;
+  padding: 0;
+}
+.container {
+  width: 90%;
+  max-width: 800px;
+  margin: 40px auto;
+  background: #fff;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+h2 { text-align: center; }
+input, textarea, select, button {
+  margin: 4px 0;
+  padding: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+button {
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover { background: #0056b3; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+th, td {
+  border: 1px solid #ccc;
+  padding: 6px;
+  text-align: left;
+}
+.linklike {
+  background: none;
+  color: #007bff;
+  text-decoration: underline;
+  border: none;
+  cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<div class="container" id="loginDiv">
+  <h2>Village Login</h2>
+  <label>Village Name:</label>
+  <input type="text" id="villageName" placeholder="Enter village name">
+  <label>PIN (Secret Code):</label>
+  <input type="password" id="villagePin" placeholder="Enter your PIN">
+  <button id="loginBtn">Login / Create Village</button>
+</div>
+
+<div class="container" id="dataDiv" style="display:none;">
+  <h2 id="villageTitle"></h2>
+  <button id="logoutBtn" style="background:#dc3545;">Logout</button>
+
+  <h3>Add New Resident</h3>
+  <input id="r_name" placeholder="Name">
+  <select id="r_gender">
+    <option value="">Select gender</option>
+    <option>Male</option>
+    <option>Female</option>
+  </select>
+  <input id="r_birthyear" placeholder="Birth Year">
+  <input id="r_idnum" placeholder="National ID">
+  <input id="r_parents" placeholder="Parents' Names">
+  <textarea id="r_notes" placeholder="Additional Notes"></textarea>
+  <button id="addRecordBtn">Save Record</button>
+  <button id="clearForm">Clear</button>
+
+  <h3>Search Residents</h3>
+  <input id="searchInput" placeholder="Search by name, ID, etc.">
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Gender</th><th>Birth Year</th><th>ID</th><th>Parents</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="recordsTableBody"></tbody>
+  </table>
+
+  <p id="recordsCount"></p>
+  <button id="exportCsvBtn">Export CSV</button>
+</div>
+
+<script>
+// Local storage helper
+function loadVillages(){
+  try { return JSON.parse(localStorage.getItem('villages')||'{}'); }
+  catch(e){ return {}; }
+}
+function saveVillages(v){ localStorage.setItem('villages', JSON.stringify(v)); }
+
+let villages = loadVillages();
+let currentVillageId = null;
+
+// Login / Create village
+document.getElementById('loginBtn').addEventListener('click', ()=>{
+  const name = villageName.value.trim();
+  const pin = villagePin.value.trim();
+  if(!name || !pin) return alert("Please fill all fields!");
+
+  let v = loadVillages();
+  const key = name.toLowerCase().replace(/\s+/g,'_');
+
+  if(v[key] && v[key].pin !== pin) {
+    alert("Incorrect PIN for this village!");
+    return;
+  }
+  if(!v[key]) {
+    v[key] = {name, pin, records:[]};
+    saveVillages(v);
+  }
+  currentVillageId = key;
+  document.getElementById('loginDiv').style.display='none';
+  document.getElementById('dataDiv').style.display='block';
+  document.getElementById('villageTitle').innerText = "Village: " + v[key].name;
+  renderRecords();
+});
+
+// Logout
+document.getElementById('logoutBtn').addEventListener('click', ()=>{
+  currentVillageId = null;
+  document.getElementById('loginDiv').style.display='block';
+  document.getElementById('dataDiv').style.display='none';
+});
+
+// Render
+function renderRecords(filter=''){
+  villages = loadVillages();
+  const v = villages[currentVillageId] || {records:[]};
+  const recs = v.records || [];
+  const f = filter.trim().toLowerCase();
+  const shown = recs.filter(r=>{
+    if(!f) return true;
+    return [r.name,r.idnum,r.parents,(r.notes||'')].join(' ').toLowerCase().includes(f);
+  });
+  const body = document.getElementById('recordsTableBody');
+  body.innerHTML='';
+  shown.forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHtml(r.name)}</td>
+                    <td>${escapeHtml(r.gender)}</td>
+                    <td>${escapeHtml(r.birthyear)}</td>
+                    <td>${escapeHtml(r.idnum)}</td>
+                    <td>${escapeHtml(r.parents)}</td>
+                    <td>
+                      <button class="linklike" onclick="editRecord('${r.id}')">Edit</button>
+                      <button class="linklike" onclick="deleteRecord('${r.id}')">Delete</button>
+                    </td>`;
+    body.appendChild(tr);
+  });
+  document.getElementById('recordsCount').innerText = `${recs.length} total (showing ${shown.length})`;
+}
+
+function escapeHtml(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+// Add record
+addRecordBtn.addEventListener('click', ()=>{
+  const name = r_name.value.trim();
+  const gender = r_gender.value.trim();
+  const birthyear = r_birthyear.value.trim();
+  const idnum = r_idnum.value.trim();
+  const parents = r_parents.value.trim();
+  const notes = r_notes.value.trim();
+
+  if(!name || !gender || !birthyear){ alert("Izina, igitsina, n'umwaka by'ingenzi!"); return; }
+
+  villages = loadVillages();
+  const v = villages[currentVillageId];
+  const rec = {id: 'r_'+Date.now(), name, gender, birthyear, idnum, parents, notes};
+  v.records.push(rec);
+  saveVillages(villages);
+  clearRecordForm();
+  renderRecords();
+});
+
+clearForm.addEventListener('click', clearRecordForm);
+function clearRecordForm(){
+  r_name.value=''; r_gender.value=''; r_birthyear.value=''; r_idnum.value='';
+  r_parents.value=''; r_notes.value='';
+}
+
+// Edit / Delete
+window.editRecord = function(id){
+  villages = loadVillages();
+  const v = villages[currentVillageId];
+  const r = v.records.find(x=>x.id===id);
+  if(!r) return alert("Record not found");
+  r_name.value = r.name; r_gender.value = r.gender; r_birthyear.value = r.birthyear;
+  r_idnum.value = r.idnum; r_parents.value = r.parents; r_notes.value = r.notes;
+  v.records = v.records.filter(x=>x.id!==id);
+  saveVillages(villages);
+  renderRecords();
+}
+
+window.deleteRecord = function(id){
+  if(!confirm("Wemeza gusiba uyu muturage?")) return;
+  villages = loadVillages();
+  const v = villages[currentVillageId];
+  v.records = v.records.filter(x=>x.id!==id);
+  saveVillages(villages);
+  renderRecords();
+}
+
+// Search
+searchInput.addEventListener('input', ()=>renderRecords(searchInput.value));
+
+// Export CSV
+exportCsvBtn.addEventListener('click', ()=>{
+  villages = loadVillages();
+  const v = villages[currentVillageId] || {records:[]};
+  const rows = v.records.map(r=>[r.name,r.gender,r.birthyear,r.idnum,r.parents,r.notes]);
+  const header = ['name','gender','birthyear','idnum','parents','notes'];
+  const csv = [header.join(','), ...rows.map(r=>r.map(c=>`"${(String(c||'')).replace(/"/g,'""')}"`).join(','))].join('\n');
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = v.name.replace(/\s+/g,'_')+'_residents.csv';
+  a.click();
+});
+</script>
+
+</body>
+</html>
